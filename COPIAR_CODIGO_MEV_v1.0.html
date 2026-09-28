@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Código Maestro MEV v1.0</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f3f1ee;color:#242424;margin:0}
+main{max-width:760px;margin:60px auto;background:#fff;padding:48px;border-radius:18px;box-shadow:0 8px 30px #0001}
+h1{margin:0 0 8px;font-size:30px} .sub{color:#777;margin-bottom:28px}
+button{border:0;background:#242424;color:#fff;padding:16px 22px;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer}
+#estado{margin-left:12px;font-weight:700} details{margin-top:30px}
+textarea{width:100%;height:260px;margin-top:12px;font-family:Consolas,monospace;font-size:12px}
+.aviso{margin-top:28px;padding:16px;background:#f7f7f7;border-left:4px solid #777;line-height:1.5}
+</style>
+</head>
+<body>
+<main>
+<h1>Código Maestro MEV</h1>
+<div class="sub">Versión 1.0 · Septiembre de 2026 · Para usar con <em>MEV sin morir en el intento</em></div>
+<button id="copiar">📋 COPIAR CÓDIGO MAESTRO</button><span id="estado"></span>
+<div class="aviso">Copiá el código únicamente desde esta página de la guía. Luego volvé a MEV, abrí la Consola de Chrome, pegalo y presioná Enter. Esta herramienta genera una copia de trabajo y no reemplaza el expediente electrónico oficial.</div>
+<details>
+<summary>Acceso alternativo: ver y seleccionar el código</summary>
+<textarea id="codigo" readonly>(async () =&gt; {
+  /* ==========================================================
+     GUÍA MEV — CÓDIGO MAESTRO
+     VERSIÓN 1.0 — SEPTIEMBRE 2026
+     ========================================================== */
+
+  const pausa = ms =&gt; new Promise(r =&gt; setTimeout(r, ms));
+  const escapar = texto =&gt; String(texto ?? &quot;&quot;)
+    .replace(/&amp;/g, &quot;&amp;amp;&quot;).replace(/&lt;/g, &quot;&amp;lt;&quot;).replace(/&gt;/g, &quot;&amp;gt;&quot;)
+    .replace(/&quot;/g, &quot;&amp;quot;&quot;).replace(/&#x27;/g, &quot;&amp;#039;&quot;);
+  const limpiar = texto =&gt; String(texto ?? &quot;&quot;).replace(/\s+/g, &quot; &quot;).trim();
+
+  const links = [...document.querySelectorAll(&#x27;a[href*=&quot;proveido.asp&quot;]&#x27;)];
+
+  if (!links.length) {
+    console.error(&quot;NO SE DETECTARON MOVIMIENTOS. Verificá que estés en la pantalla del expediente donde aparecen los pasos procesales.&quot;);
+    return;
+  }
+
+  console.clear();
+  console.log(&quot;==========================================&quot;);
+  console.log(&quot; GUÍA MEV — INICIO&quot;);
+  console.log(&quot;==========================================&quot;);
+  console.log(&quot;MOVIMIENTOS DETECTADOS:&quot;, links.length);
+  console.log(&quot;&quot;);
+  console.log(&quot;No cierres ni actualices esta pestaña.&quot;);
+  console.log(&quot;&quot;);
+
+  const obtenerFecha = enlace =&gt; {
+    const contenedor = enlace.closest(&quot;tr&quot;) || enlace.closest(&quot;li&quot;) || enlace.parentElement;
+    const texto = contenedor ? limpiar(contenedor.innerText) : &quot;&quot;;
+    const fecha = texto.match(/\b\d{2}\/\d{2}\/\d{4}\b/);
+    return fecha ? fecha[0] : &quot;&quot;;
+  };
+
+  let movimientos = links.map((a, i) =&gt; ({
+    numero: i + 1,
+    titulo: limpiar(a.innerText),
+    fecha: obtenerFecha(a),
+    url: a.href,
+    textoHTML: &quot;&quot;,
+    foja: &quot;&quot;,
+    adjuntos: [],
+    estado: &quot;PENDIENTE&quot;,
+    metodo: &quot;&quot;
+  }));
+
+  const requiereValidacion = html =&gt; {
+    const t = html.toLowerCase();
+    return (
+      t.includes(&quot;cf-turnstile&quot;) ||
+      t.includes(&quot;validando acceso&quot;) ||
+      t.includes(&quot;validar_turnstile&quot;) ||
+      t.includes(&quot;challenge-platform&quot;)
+    );
+  };
+
+  const obtenerAdjuntos = (doc, urlBase) =&gt; {
+    const adjuntos = [...doc.querySelectorAll(&quot;a&quot;)]
+      .filter(a =&gt; limpiar(a.innerText).toUpperCase().includes(&quot;VER ADJUNTO&quot;))
+      .map(a =&gt; {
+        const href = a.getAttribute(&quot;href&quot;);
+        if (!href) return null;
+        try { return new URL(href, urlBase).href; }
+        catch (e) { return null; }
+      })
+      .filter(Boolean);
+    return [...new Set(adjuntos)];
+  };
+
+  const obtenerFoja = (doc, mov, textoPlano = &quot;&quot;) =&gt; {
+    let foja = &quot;&quot;;
+
+    if (textoPlano) {
+      const coincidencia =
+        textoPlano.match(/\bFoja\s*:?\s*([0-9/]+)/i) ||
+        textoPlano.match(/\bFs\.?\s*:?\s*([0-9/]+)/i);
+      if (coincidencia) foja = coincidencia[1];
+    }
+
+    if (!foja) {
+      const opciones = [...doc.querySelectorAll(&quot;option&quot;)];
+      const candidatas = opciones.filter(op =&gt; {
+        const t = limpiar(op.innerText);
+        return t.includes(mov.fecha) &amp;&amp;
+          t.toUpperCase().includes(mov.titulo.toUpperCase());
+      });
+
+      let opcion = candidatas.find(op =&gt; op.selected);
+      if (!opcion) opcion = candidatas[0];
+
+      if (opcion) {
+        const coincidencia = limpiar(opcion.innerText).match(/Foja:\s*([0-9/]+)/i);
+        if (coincidencia) foja = coincidencia[1];
+      }
+    }
+
+    return foja;
+  };
+
+  const recuperarSinTexto = (doc, mov) =&gt; {
+    const adjuntos = obtenerAdjuntos(doc, mov.url);
+
+    const filas = [...doc.querySelectorAll(&quot;tr&quot;)]
+      .map(tr =&gt; ({ texto: limpiar(tr.innerText) }))
+      .filter(x =&gt; x.texto);
+
+    const indiceReferencias = filas.findIndex(
+      x =&gt; x.texto.toUpperCase() === &quot;REFERENCIAS&quot;
+    );
+
+    let referencias = [];
+
+    if (indiceReferencias !== -1) {
+      for (let i = indiceReferencias + 1; i &lt; filas.length; i++) {
+        const texto = filas[i].texto;
+        const mayus = texto.toUpperCase();
+
+        if (
+          mayus.includes(&quot;TEXTO DEL PROVEÍDO&quot;) ||
+          mayus.includes(&quot;TEXTO DEL PROVEIDO&quot;)
+        ) break;
+
+        if (mayus.includes(&quot;VER ADJUNTO&quot;)) continue;
+        referencias.push(texto);
+      }
+    }
+
+    referencias = [...new Set(referencias)];
+    const foja = obtenerFoja(doc, mov);
+    const recuperable = referencias.length &gt; 0 || adjuntos.length &gt; 0;
+
+    if (!recuperable) return { ok: false };
+
+    let contenidoAlternativo = `
+      &lt;div class=&quot;contenido-alternativo-mev&quot;&gt;
+        &lt;p class=&quot;sin-texto-mev&quot;&gt;
+          Esta actuación no contiene texto de proveído en MEV.
+        &lt;/p&gt;
+    `;
+
+    if (referencias.length) {
+      contenidoAlternativo += `
+        &lt;div class=&quot;referencias-mev&quot;&gt;
+          &lt;p&gt;&lt;strong&gt;REFERENCIAS&lt;/strong&gt;&lt;/p&gt;
+          ${referencias.map(ref =&gt; `&lt;p&gt;${escapar(ref)}&lt;/p&gt;`).join(&quot;&quot;)}
+        &lt;/div&gt;
+      `;
+    }
+
+    contenidoAlternativo += `&lt;/div&gt;`;
+
+    return {
+      ok: true,
+      textoHTML: contenidoAlternativo,
+      foja,
+      adjuntos
+    };
+  };
+
+  async function recuperarMovimiento(mov) {
+    try {
+      const respuesta = await fetch(mov.url, {
+        credentials: &quot;include&quot;,
+        cache: &quot;no-store&quot;
+      });
+
+      const html = await respuesta.text();
+
+      if (requiereValidacion(html)) {
+        mov.estado = &quot;VALIDACION&quot;;
+        return false;
+      }
+
+      const doc = new DOMParser().parseFromString(html, &quot;text/html&quot;);
+
+      mov.adjuntos = obtenerAdjuntos(doc, mov.url);
+
+      const contenido = doc.querySelector(&quot;#contenidoTxt&quot;);
+
+      if (contenido) {
+        const copia = contenido.cloneNode(true);
+
+        copia.querySelectorAll(&quot;script, style, .EstiloLineaCorte&quot;)
+          .forEach(x =&gt; x.remove());
+
+        copia.querySelectorAll(&quot;a&quot;).forEach(a =&gt; {
+          const href = a.getAttribute(&quot;href&quot;);
+          if (href) {
+            try { a.href = new URL(href, mov.url).href; }
+            catch (e) {}
+          }
+        });
+
+        const textoPlano = limpiar(copia.innerText);
+
+        mov.foja = obtenerFoja(doc, mov, textoPlano);
+        mov.textoHTML = copia.innerHTML.trim();
+        mov.estado = &quot;OK&quot;;
+        mov.metodo = &quot;NORMAL&quot;;
+        return true;
+      }
+
+      const alternativo = recuperarSinTexto(doc, mov);
+
+      if (alternativo.ok) {
+        mov.textoHTML = alternativo.textoHTML;
+        mov.foja = alternativo.foja;
+        mov.adjuntos = alternativo.adjuntos;
+        mov.estado = &quot;OK&quot;;
+        mov.metodo = &quot;REFERENCIAS&quot;;
+
+        console.log(
+          `Movimiento ${mov.numero}: recuperado mediante referencias/adjuntos.`
+        );
+        return true;
+      }
+
+      mov.estado = &quot;SIN CONTENIDO&quot;;
+      return false;
+
+    } catch (error) {
+      mov.estado = &quot;ERROR&quot;;
+      return false;
+    }
+  }
+
+  async function pasada(lista, numeroPasada, espera) {
+    console.log(`----- PASADA ${numeroPasada} -----`);
+
+    for (let i = 0; i &lt; lista.length; i++) {
+      const mov = lista[i];
+      console.log(`Revisando movimiento ${mov.numero} (${i + 1}/${lista.length})`);
+      await recuperarMovimiento(mov);
+      await pausa(espera);
+    }
+  }
+
+  // v1.0: pausa optimizada y conservadora.
+  await pasada(movimientos, 1, 500);
+
+  let faltantes = movimientos.filter(m =&gt; m.estado !== &quot;OK&quot;);
+
+  for (let intento = 2; intento &lt;= 4 &amp;&amp; faltantes.length; intento++) {
+    console.log(&quot;&quot;);
+    console.log(`Quedan ${faltantes.length} movimientos pendientes.`);
+    console.log(&quot;Esperando antes de volver a intentar...&quot;);
+
+    await pausa(4000);
+    await pasada(faltantes, intento, 1000);
+
+    faltantes = movimientos.filter(m =&gt; m.estado !== &quot;OK&quot;);
+  }
+
+  const adjuntosTodos = [];
+
+  movimientos.forEach(m =&gt; {
+    m.adjuntos.forEach(url =&gt; {
+      adjuntosTodos.push({
+        movimiento: m.numero,
+        fecha: m.fecha,
+        titulo: m.titulo,
+        url
+      });
+    });
+  });
+
+  const adjuntosUnicos = [
+    ...new Map(adjuntosTodos.map(x =&gt; [x.url, x])).values()
+  ];
+
+  window.MOVIMIENTOS_MEV = movimientos;
+  window.FALTANTES_MEV = faltantes;
+  window.ADJUNTOS_MEV = adjuntosUnicos;
+
+  console.log(&quot;&quot;);
+  console.log(&quot;==========================================&quot;);
+  console.log(&quot; REVISIÓN TERMINADA&quot;);
+  console.log(&quot;==========================================&quot;);
+  console.log(&quot;TOTAL DE MOVIMIENTOS:&quot;, movimientos.length);
+  console.log(
+    &quot;MOVIMIENTOS RECUPERADOS:&quot;,
+    movimientos.filter(m =&gt; m.estado === &quot;OK&quot;).length
+  );
+  console.log(&quot;MOVIMIENTOS PENDIENTES:&quot;, faltantes.length);
+  console.log(&quot;ADJUNTOS DETECTADOS:&quot;, adjuntosUnicos.length);
+  console.log(
+    &quot;MOVIMIENTOS RECUPERADOS POR REFERENCIAS:&quot;,
+    movimientos.filter(m =&gt; m.metodo === &quot;REFERENCIAS&quot;).length
+  );
+
+  if (faltantes.length) {
+    console.warn(&quot;&quot;);
+    console.warn(&quot;ATENCIÓN: todavía quedaron movimientos pendientes.&quot;);
+    console.warn(&quot;NO cierres ni actualices esta pestaña.&quot;);
+    console.warn(
+      &quot;No se generará el HTML para evitar crear una copia incompleta.&quot;
+    );
+
+    console.table(
+      faltantes.map(m =&gt; ({
+        movimiento: m.numero,
+        fecha: m.fecha,
+        tramite: m.titulo,
+        estado: m.estado
+      }))
+    );
+    return;
+  }
+
+  console.log(&quot;&quot;);
+  console.log(
+    &quot;EXPEDIENTE COMPLETO:&quot;,
+    `${movimientos.length}/${movimientos.length}`
+  );
+  console.log(&quot;&quot;);
+  console.log(&quot;Generando copia de trabajo...&quot;);
+
+  const indiceMovimientosHTML = movimientos.map(m =&gt; `
+    &lt;a class=&quot;item-indice&quot; href=&quot;#movimiento-${m.numero}&quot;&gt;
+      &lt;span class=&quot;indice-numero&quot;&gt;${m.numero}.&lt;/span&gt;
+      &lt;span class=&quot;indice-fecha&quot;&gt;${escapar(m.fecha)}&lt;/span&gt;
+      &lt;span&gt;${escapar(m.titulo)}&lt;/span&gt;
+    &lt;/a&gt;
+  `).join(&quot;&quot;);
+
+  const movimientosConAdjuntos = movimientos.filter(
+    m =&gt; Array.isArray(m.adjuntos) &amp;&amp; m.adjuntos.length
+  );
+
+  const indiceAdjuntosHTML = movimientosConAdjuntos.length
+    ? movimientosConAdjuntos.map(m =&gt; `
+      &lt;div class=&quot;grupo-documental&quot;&gt;
+        &lt;div class=&quot;encabezado-documental&quot;&gt;
+          &lt;div&gt;
+            &lt;strong&gt;MOVIMIENTO ${m.numero}&lt;/strong&gt;
+            &lt;span class=&quot;fecha-documental&quot;&gt;${escapar(m.fecha)}&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;a class=&quot;ir-movimiento&quot; href=&quot;#movimiento-${m.numero}&quot;&gt;
+            Ver movimiento
+          &lt;/a&gt;
+        &lt;/div&gt;
+
+        &lt;div class=&quot;titulo-documental&quot;&gt;${escapar(m.titulo)}&lt;/div&gt;
+
+        &lt;div class=&quot;links-documentales&quot;&gt;
+          ${m.adjuntos.map((url, i) =&gt; `
+            &lt;a href=&quot;${escapar(url)}&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;&gt;
+              📄 Abrir adjunto ${i + 1}
+            &lt;/a&gt;
+          `).join(&quot;&quot;)}
+        &lt;/div&gt;
+      &lt;/div&gt;
+    `).join(&quot;&quot;)
+    : `&lt;p class=&quot;sin-documentacion&quot;&gt;No se detectó documentación adjunta.&lt;/p&gt;`;
+
+  const movimientosHTML = movimientos.map(m =&gt; {
+    const adjuntos = m.adjuntos.length
+      ? `
+        &lt;div class=&quot;adjuntos&quot;&gt;
+          &lt;div class=&quot;titulo-adjuntos&quot;&gt;DOCUMENTACIÓN ADJUNTA&lt;/div&gt;
+          ${m.adjuntos.map((url, i) =&gt; `
+            &lt;a href=&quot;${escapar(url)}&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;&gt;
+              📄 Abrir adjunto ${i + 1}
+            &lt;/a&gt;
+          `).join(&quot;&quot;)}
+          &lt;a class=&quot;volver-documental&quot; href=&quot;#documentacion&quot;&gt;
+            ↑ Volver al índice de documentación
+          &lt;/a&gt;
+        &lt;/div&gt;
+      `
+      : &quot;&quot;;
+
+    return `
+      &lt;section class=&quot;movimiento&quot; id=&quot;movimiento-${m.numero}&quot;&gt;
+        &lt;div class=&quot;numero&quot;&gt;MOVIMIENTO ${m.numero}&lt;/div&gt;
+        &lt;div class=&quot;fecha&quot;&gt;${escapar(m.fecha)}&lt;/div&gt;
+        &lt;h2&gt;${escapar(m.titulo)}&lt;/h2&gt;
+        ${m.foja ? `&lt;div class=&quot;foja&quot;&gt;FOJA ${escapar(m.foja)}&lt;/div&gt;` : &quot;&quot;}
+        &lt;div class=&quot;texto-movimiento&quot;&gt;${m.textoHTML}&lt;/div&gt;
+        ${adjuntos}
+      &lt;/section&gt;
+    `;
+  }).join(&quot;&quot;);
+
+  const fechaGeneracion = new Date().toLocaleString(&quot;es-AR&quot;);
+
+  const htmlFinal = `&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;es&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;UTF-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;title&gt;EXPEDIENTE MEV — COPIA DE TRABAJO&lt;/title&gt;
+&lt;style&gt;
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:#ededed;color:#222;font-family:Arial,Helvetica,sans-serif}
+.contenedor{width:calc(100% - 40px);max-width:900px;margin:30px auto;padding:55px 65px;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.12)}
+.portada{padding-bottom:30px;margin-bottom:40px;border-bottom:4px solid #333}
+.portada h1{margin:0 0 5px;font-size:30px}.subtitulo{margin-top:0;color:#666}
+.resumen{margin-top:25px;padding:18px 22px;background:#f3f3f3;border-left:5px solid #555;line-height:1.8}
+.aviso{margin-top:20px;color:#666;font-size:12px}
+.navegacion{display:flex;gap:12px;margin:30px 0 45px;flex-wrap:wrap}
+.boton-nav{display:inline-block;padding:12px 17px;background:#333;color:#fff;border-radius:5px;text-decoration:none;font-size:13px;font-weight:bold}
+.boton-nav.secundario{background:#666}
+.indice{margin:40px 0 65px;padding:24px;background:#fafafa;border:1px solid #ddd}
+.indice h2{margin-top:0;font-size:20px}
+.item-indice{display:grid;grid-template-columns:35px 90px 1fr;gap:6px;padding:7px 0;border-bottom:1px solid #eee;color:#333;text-decoration:none;font-size:12px}
+.indice-numero,.indice-fecha{font-weight:bold}
+.indice-documental{margin:40px 0 70px;padding-top:10px}
+.indice-documental h2{margin-bottom:5px;font-size:24px}
+.descripcion-documental{margin-top:0;margin-bottom:25px;color:#666;line-height:1.5}
+.grupo-documental{margin-bottom:18px;padding:16px 18px;background:#fafafa;border:1px solid #ddd;border-left:4px solid #777}
+.encabezado-documental{display:flex;justify-content:space-between;gap:15px;align-items:center}
+.fecha-documental{margin-left:8px;color:#666;font-size:12px}
+.titulo-documental{margin-top:7px;color:#444;font-size:13px;font-weight:bold}
+.ir-movimiento{color:#174a7e;font-size:12px;font-weight:bold;text-decoration:none}
+.links-documentales{margin-top:10px}.links-documentales a{display:block;margin:6px 0;color:#174a7e;font-size:13px}
+.movimiento{margin-bottom:65px;padding-top:30px;border-top:3px solid #777}
+.numero{margin-bottom:7px;color:#777;font-size:11px;font-weight:bold;letter-spacing:1.3px}
+.fecha{margin-bottom:5px;color:#555;font-size:15px;font-weight:bold}
+.movimiento h2{margin:0;font-size:21px;line-height:1.3}
+.foja{display:inline-block;margin-top:10px;padding:4px 9px;background:#eee;font-size:12px;font-weight:bold}
+.texto-movimiento{width:100%;margin-top:28px;font-family:&quot;Times New Roman&quot;,Times,serif;font-size:16px;line-height:1.6;text-align:justify;overflow-wrap:anywhere}
+.texto-movimiento p{max-width:100%!important;margin-left:0!important;margin-right:0!important}
+.texto-movimiento table{width:100%!important;max-width:100%!important;table-layout:fixed!important}
+.texto-movimiento td{overflow-wrap:anywhere}.texto-movimiento img{max-width:100%!important;height:auto!important}
+.sin-texto-mev{padding:10px 12px;background:#f5f5f5;color:#666;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-style:italic}
+.referencias-mev{margin-top:18px}
+.adjuntos{margin-top:28px;padding:16px 18px;background:#f3f3f3;border:1px solid #ddd}
+.titulo-adjuntos{margin-bottom:10px;color:#555;font-size:10px;font-weight:bold;letter-spacing:1px}
+.adjuntos a{display:block;margin:7px 0;color:#174a7e;font-size:13px}
+.volver-documental{margin-top:13px!important;padding-top:10px;border-top:1px solid #ddd;color:#666!important;font-size:11px!important}
+.volver{position:fixed;right:20px;bottom:20px;width:42px;height:42px;display:flex;align-items:center;justify-content:center;background:#333;color:white;border-radius:50%;text-decoration:none;opacity:.8}
+@media(max-width:700px){.contenedor{width:100%;margin:0;padding:30px 22px;box-shadow:none}.item-indice{grid-template-columns:30px 80px 1fr}.encabezado-documental{display:block}.ir-movimiento{display:inline-block;margin-top:8px}}
+@media print{body{background:white}.contenedor{width:100%;max-width:none;margin:0;padding:12mm;box-shadow:none}.navegacion,.indice,.indice-documental,.volver{display:none}}
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;a class=&quot;volver&quot; href=&quot;#inicio&quot; title=&quot;Volver arriba&quot;&gt;↑&lt;/a&gt;
+&lt;main class=&quot;contenedor&quot; id=&quot;inicio&quot;&gt;
+&lt;section class=&quot;portada&quot;&gt;
+&lt;h1&gt;EXPEDIENTE MEV&lt;/h1&gt;
+&lt;p class=&quot;subtitulo&quot;&gt;Copia de trabajo&lt;/p&gt;
+&lt;div class=&quot;resumen&quot;&gt;
+&lt;strong&gt;Fecha de generación:&lt;/strong&gt; ${escapar(fechaGeneracion)}&lt;br&gt;
+&lt;strong&gt;Movimientos:&lt;/strong&gt; ${movimientos.length}&lt;br&gt;
+&lt;strong&gt;Adjuntos detectados:&lt;/strong&gt; ${adjuntosUnicos.length}
+&lt;/div&gt;
+&lt;p class=&quot;aviso&quot;&gt;Copia de trabajo generada a partir de la información visualizada en MEV. No reemplaza al expediente electrónico oficial.&lt;/p&gt;
+&lt;/section&gt;
+
+&lt;nav class=&quot;navegacion&quot;&gt;
+&lt;a class=&quot;boton-nav&quot; href=&quot;#indice-movimientos&quot;&gt;☰ ÍNDICE DE MOVIMIENTOS&lt;/a&gt;
+&lt;a class=&quot;boton-nav secundario&quot; href=&quot;#documentacion&quot;&gt;📎 ÍNDICE DE DOCUMENTACIÓN&lt;/a&gt;
+&lt;/nav&gt;
+
+&lt;section class=&quot;indice&quot; id=&quot;indice-movimientos&quot;&gt;
+&lt;h2&gt;Índice de movimientos&lt;/h2&gt;
+${indiceMovimientosHTML}
+&lt;/section&gt;
+
+&lt;section class=&quot;indice-documental&quot; id=&quot;documentacion&quot;&gt;
+&lt;h2&gt;Índice de documentación&lt;/h2&gt;
+&lt;p class=&quot;descripcion-documental&quot;&gt;Documentación adjunta detectada, agrupada según el movimiento al que pertenece.&lt;/p&gt;
+${indiceAdjuntosHTML}
+&lt;/section&gt;
+
+${movimientosHTML}
+&lt;/main&gt;
+&lt;/body&gt;
+&lt;/html&gt;`;
+
+  const blob = new Blob([htmlFinal], {
+    type: &quot;text/html;charset=utf-8&quot;
+  });
+
+  const url = URL.createObjectURL(blob);
+  const descarga = document.createElement(&quot;a&quot;);
+
+  descarga.href = url;
+  descarga.download = &quot;EXPEDIENTE_MEV_COMPLETO.html&quot;;
+
+  document.body.appendChild(descarga);
+  descarga.click();
+  descarga.remove();
+
+  setTimeout(() =&gt; URL.revokeObjectURL(url), 5000);
+
+  console.log(&quot;&quot;);
+  console.log(&quot;==========================================&quot;);
+  console.log(&quot; PROCEDIMIENTO FINALIZADO&quot;);
+  console.log(&quot;==========================================&quot;);
+  console.log(&quot;Se generó el archivo:&quot;);
+  console.log(&quot;EXPEDIENTE_MEV_COMPLETO.html&quot;);
+  console.log(&quot;&quot;);
+  console.log(&quot;Incluye Índice de Movimientos e Índice de Documentación.&quot;);
+  console.log(&quot;&quot;);
+  console.log(&quot;Guardalo junto con la documentación de la causa.&quot;);
+})();</textarea>
+</details>
+</main>
+<script>
+const codigo=document.getElementById("codigo");
+const estado=document.getElementById("estado");
+document.getElementById("copiar").addEventListener("click",async()=>{
+  try{
+    await navigator.clipboard.writeText(codigo.value);
+    estado.textContent="✓ Código copiado";
+  }catch(e){
+    codigo.focus();codigo.select();
+    const ok=document.execCommand("copy");
+    estado.textContent=ok?"✓ Código copiado":"Seleccioná el código y presioná Ctrl+C";
+    if(!ok) document.querySelector("details").open=true;
+  }
+});
+</script>
+</body>
+</html>
