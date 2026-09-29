@@ -276,6 +276,47 @@ textarea{width:100%;height:260px;margin-top:12px;font-family:Consolas,monospace;
     faltantes = movimientos.filter(m =&gt; m.estado !== &quot;OK&quot;);
   }
 
+  // Si MEV mantuvo movimientos bloqueados por validación, hacemos una
+  // recuperación lenta únicamente sobre esos pendientes. Esta etapa fue
+  // incorporada para evitar reiniciar todo el expediente desde cero.
+  const pendientesValidacion = faltantes.filter(m =&gt; m.estado === &quot;VALIDACION&quot;);
+
+  if (pendientesValidacion.length) {
+    console.log(&quot;&quot;);
+    console.log(&quot;==========================================&quot;);
+    console.log(&quot; RECUPERACIÓN LENTA DE PENDIENTES&quot;);
+    console.log(&quot;==========================================&quot;);
+    console.log(&quot;Movimientos a recuperar:&quot;, pendientesValidacion.length);
+    console.log(&quot;MEV está pidiendo validación en estas actuaciones.&quot;);
+    console.log(&quot;El proceso continuará más despacio. No cierres ni actualices esta pestaña.&quot;);
+    console.log(&quot;&quot;);
+
+    for (let i = 0; i &lt; pendientesValidacion.length; i++) {
+      const mov = pendientesValidacion[i];
+      console.log(`Reintentando movimiento ${mov.numero} (${i + 1}/${pendientesValidacion.length})...`);
+
+      const recuperado = await recuperarMovimiento(mov);
+
+      if (recuperado) {
+        console.log(`Movimiento ${mov.numero}: RECUPERADO.`);
+      } else {
+        console.warn(`Movimiento ${mov.numero}: MEV sigue pidiendo validación.`);
+      }
+
+      await pausa(5000);
+    }
+
+    faltantes = movimientos.filter(m =&gt; m.estado !== &quot;OK&quot;);
+
+    console.log(&quot;&quot;);
+    console.log(&quot;RECUPERACIÓN LENTA FINALIZADA&quot;);
+    console.log(&quot;PENDIENTES RESTANTES:&quot;, faltantes.length);
+
+    if (!faltantes.length) {
+      console.log(&quot;TODOS LOS MOVIMIENTOS FUERON RECUPERADOS.&quot;);
+    }
+  }
+
   const adjuntosTodos = [];
 
   movimientos.forEach(m =&gt; {
